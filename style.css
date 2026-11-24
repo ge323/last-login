@@ -39,6 +39,12 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 15px/1.55 "IBM Plex Sans KR", system-ui, sans-serif;
+  word-break: keep-all; /* 한국어 단어가 중간에 끊기지 않게 */
+  overflow-wrap: anywhere;
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 /* 오래된 모니터 느낌: 가로 주사선 + 가장자리 어둡게 */
@@ -461,6 +467,29 @@ select:focus {
   font-size: 14px;
 }
 
+/* 아직 열리지 않은 문항 */
+.q.locked {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  opacity: 0.7;
+}
+
+.q.locked b {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* 근거 단서 목록은 문장이 길어서 글자를 조금 작게 */
+.q select[id^="e"] {
+  font-size: 14px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .ends {
   display: grid;
   gap: 8px;
@@ -677,7 +706,48 @@ select:focus {
 }
 
 .login {
-  margin: 22px 0 6px;
+  margin: 0;
+  padding: 16px 16px 16px 18px;
+}
+
+/* 시작 화면: 위에서 아래로 리듬 있게 (작은 간격 8 · 보통 24 · 큰 간격 32) */
+#boot {
+  background: #070a0b; /* 뒤의 바탕화면이 비치지 않게 */
+}
+
+.intro {
+  max-width: 540px;
+}
+
+.intro .eyebrow {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.intro h1 {
+  margin: 0 0 28px;
+}
+
+.intro .story p {
+  margin: 0 0 14px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.intro .story .hook {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--red);
+}
+
+.intro .guide {
+  margin: 28px 0 32px;
+  padding-top: 20px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--dim);
+  border-top: 1px solid var(--line);
 }
 
 .lscard {
