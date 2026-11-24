@@ -66,8 +66,31 @@ button {
 
 
 /* ---------------------------------------------------------
-   2. 바탕화면과 아이콘
+   2. 게임 화면 (Stage), 바탕화면, 아이콘
    --------------------------------------------------------- */
+
+/* 넓은 화면: 크기와 확대 비율은 script.js가 계산해서 넣음
+   transform이 걸린 요소 안에서는 position: fixed가 이 화면 기준이 됨 */
+#stage {
+  position: fixed;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+  box-shadow: 0 0 0 1px #ffffff0d, 0 30px 80px #000;
+}
+
+/* 좁은 화면: 화면을 꽉 채움 */
+body.narrow #stage {
+  right: 0;
+  bottom: 0;
+  box-shadow: none;
+}
+
+/* 게임 화면 바깥 여백 */
+body {
+  background: #050708;
+}
 
 #desk {
   position: fixed;

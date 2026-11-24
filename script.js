@@ -595,11 +595,100 @@
   };
 
   /* ---------------------------------------------------------
-     5. 창 관리
+     5. 화면 크기 맞추기와 창 관리
      --------------------------------------------------------- */
+
+  // 넓은 화면에서 게임 화면의 기준 높이. 가로는 화면 비율에 맞춰 정함
+  const STAGE_HEIGHT = 720;
+  const STAGE_MIN_WIDTH = 960;
+  const STAGE_MAX_WIDTH = 1600;
+  const NARROW_BREAKPOINT = 700; // 이보다 좁으면 모바일 배치
+
+  // 현재 게임 화면의 크기, 위치, 확대 비율
+  const view = { width: innerWidth, height: innerHeight, scale: 1, left: 0, top: 0, narrow: false };
+
+  // 브라우저 크기에 맞춰 게임 화면 크기와 확대 비율 다시 계산
+  function updateStage() {
+    const stage = $("#stage");
+    const wasNarrow = view.narrow;
+    view.narrow = innerWidth <= NARROW_BREAKPOINT;
+    document.body.classList.toggle("narrow", view.narrow);
+
+    if (view.narrow) {
+      // 모바일: 확대 없이 화면을 꽉 채움
+      Object.assign(view, { width: innerWidth, height: innerHeight, scale: 1, left: 0, top: 0 });
+      stage.style.width = "";
+      stage.style.height = "";
+      stage.style.transform = "";
+    } else {
+      // 넓은 화면: 기준 높이로 만든 화면을 통째로 확대·축소해서 가운데 배치
+      const aspect = innerWidth / innerHeight;
+      view.height = STAGE_HEIGHT;
+      view.width = Math.round(Math.min(STAGE_MAX_WIDTH, Math.max(STAGE_MIN_WIDTH, STAGE_HEIGHT * aspect)));
+      view.scale = Math.min(innerWidth / view.width, innerHeight / view.height);
+      view.left = (innerWidth - view.width * view.scale) / 2;
+      view.top = (innerHeight - view.height * view.scale) / 2;
+
+      stage.style.width = view.width + "px";
+      stage.style.height = view.height + "px";
+      stage.style.transform = `translate(${view.left}px, ${view.top}px) scale(${view.scale})`;
+    }
+
+    // 모바일 ↔ 넓은 화면이 바뀌면 창을 새로 배치, 아니면 화면 밖으로 나간 창만 끌어옴
+    if (wasNarrow !== view.narrow) {
+      Object.values(windows).forEach(placeWindow);
+    } else {
+      Object.values(windows).forEach(keepWindowOnScreen);
+    }
+  }
+
+  // 브라우저 화면 좌표 → 게임 화면 좌표
+  const toStage = (x, y) => ({
+    x: (x - view.left) / view.scale,
+    y: (y - view.top) / view.scale,
+  });
 
   const windows = {};   // 창 id → 창 요소
   const renderers = {}; // 창 id → 창 내용을 그리는 함수
+
+  // 창의 크기와 위치 정하기 (원하는 크기는 창 요소에 저장해 둠)
+  function placeWindow(win) {
+    const wantWidth = Number(win.dataset.w);
+    const wantHeight = Number(win.dataset.h);
+    const slot = Number(win.dataset.slot); // 몇 번째로 열린 창인지 (겹치지 않게 조금씩 밀기)
+    const deskHeight = view.height - 44;   // 작업표시줄 제외
+    let width, height, left, top;
+
+    if (view.narrow) {
+      // 모바일: 가로를 꽉 채우고, 위쪽 아이콘 줄 아래에 배치
+      width = view.width - 16;
+      height = Math.min(wantHeight, deskHeight - 104);
+      left = 8;
+      top = Math.min(92 + slot * 10, deskHeight - height - 4);
+    } else {
+      // 넓은 화면: 왼쪽 아이콘 줄(약 110px)을 피해서 배치
+      const iconColumn = 116;
+      width = Math.min(wantWidth, view.width - iconColumn - 20);
+      height = Math.min(wantHeight, deskHeight - 40);
+      left = Math.max(iconColumn, Math.min(iconColumn + 24 + slot * 30, view.width - width - 10));
+      top = Math.max(8, Math.min(24 + slot * 28, deskHeight - height - 8));
+    }
+
+    Object.assign(win.style, {
+      width: width + "px",
+      height: height + "px",
+      left: left + "px",
+      top: top + "px",
+    });
+  }
+
+  // 화면 크기가 줄었을 때 창이 화면 밖으로 사라지지 않게
+  function keepWindowOnScreen(win) {
+    const maxLeft = view.width - 80;
+    const maxTop = view.height - 90;
+    if (win.offsetLeft > maxLeft) win.style.left = maxLeft + "px";
+    if (win.offsetTop > maxTop) win.style.top = maxTop + "px";
+  }
 
   // 창을 맨 앞으로 가져오기
   function focusWindow(id) {
@@ -623,20 +712,10 @@
     const win = document.createElement("section");
     win.className = "win";
     win.dataset.id = id;
-
-    // 크기와 위치 계산 (좁은 화면이면 꽉 채움)
-    const offset = Object.keys(windows).length % 6;
-    const isNarrow = innerWidth < 700;
-    const deskHeight = innerHeight - 44;
-    const w = isNarrow ? innerWidth - 16 : Math.min(width, innerWidth - 130);
-    const h = Math.min(height, deskHeight - (isNarrow ? 104 : 40));
-
-    win.style.width = w + "px";
-    win.style.height = h + "px";
-    win.style.left = (isNarrow ? 8 : Math.max(8, Math.min(120 + offset * 30, innerWidth - w - 10))) + "px";
-    win.style.top = (isNarrow
-      ? Math.min(92 + offset * 10, deskHeight - h - 4)
-      : Math.max(8, Math.min(24 + offset * 28, deskHeight - h - 8))) + "px";
+    win.dataset.w = width;
+    win.dataset.h = height;
+    win.dataset.slot = Object.keys(windows).length % 6;
+    placeWindow(win);
 
     win.innerHTML = `
       <div class="tb">
@@ -982,6 +1061,10 @@
     ["report", "보고서 제출"],
   ];
 
+  // 처음 한 번, 그리고 브라우저 크기가 바뀔 때마다 화면 맞추기
+  updateStage();
+  addEventListener("resize", updateStage);
+
   $("#icons").innerHTML = DESKTOP_ICONS.map(([key, label]) =>
     `<button class="ic" data-act="app" data-arg="${key}">${ICONS[key]}${label}</button>`
   ).join("");
@@ -1004,16 +1087,18 @@
     // 처음 나타날 때는 오른쪽 위에서 시작
     if (cursor.style.display !== "block") {
       cursor.style.transition = "none";
-      cursor.style.left = innerWidth - 30 + "px";
+      cursor.style.left = view.width - 30 + "px";
       cursor.style.top = "40px";
       cursor.style.display = "block";
       cursor.getBoundingClientRect(); // 위치를 먼저 확정시켜야 애니메이션이 적용됨
       cursor.style.transition = "";
     }
 
+    // 목표 요소의 가운데 (브라우저 좌표 → 게임 화면 좌표로 변환)
     const rect = target.getBoundingClientRect();
-    cursor.style.left = rect.left + rect.width / 2 + "px";
-    cursor.style.top = rect.top + rect.height / 2 + "px";
+    const point = toStage(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    cursor.style.left = point.x + "px";
+    cursor.style.top = point.y + "px";
     setTimeout(() => onArrive && onArrive(), 1300);
   }
 
@@ -1501,15 +1586,18 @@
     const titleBar = event.target.closest(".tb");
     if (!titleBar || event.target.closest(".x")) return;
 
-    const rect = win.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left;
-    const offsetY = event.clientY - rect.top;
+    // 모든 계산은 게임 화면 좌표로 (확대·축소된 상태에서도 마우스를 정확히 따라오게)
+    const start = toStage(event.clientX, event.clientY);
+    const offsetX = start.x - win.offsetLeft;
+    const offsetY = start.y - win.offsetTop;
+    const winWidth = win.offsetWidth;
     titleBar.setPointerCapture(event.pointerId);
 
     const onMove = (e) => {
+      const point = toStage(e.clientX, e.clientY);
       // 창이 화면 밖으로 완전히 사라지지 않도록 제한
-      const left = Math.max(80 - rect.width, Math.min(innerWidth - 80, e.clientX - offsetX));
-      const top = Math.max(0, Math.min(innerHeight - 90, e.clientY - offsetY));
+      const left = Math.max(80 - winWidth, Math.min(view.width - 80, point.x - offsetX));
+      const top = Math.max(0, Math.min(view.height - 90, point.y - offsetY));
       win.style.left = left + "px";
       win.style.top = top + "px";
     };
