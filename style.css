@@ -503,11 +503,6 @@ select:focus {
   font-weight: 500;
 }
 
-/* 근거 단서 목록은 문장이 길어서 글자를 조금 작게 */
-.q select[id^="e"] {
-  font-size: 14px;
-}
-
 .btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -689,7 +684,7 @@ select:focus {
   justify-content: center;
   padding: 20px;
   overflow: auto;
-  background: #070a0bf2;
+  background: #070a0b; /* 뒤 화면이 비치지 않게 불투명 */
 }
 
 .ov[hidden] {

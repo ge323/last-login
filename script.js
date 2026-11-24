@@ -38,8 +38,9 @@
      2. 게임 상태
      --------------------------------------------------------- */
 
-  // 원격 사용자가 처음 열 때 강제로 닫아 버리는 파일들
-  const FORCE_CLOSE_FILES = ["사고보고서_원본.txt", "음성메모_1101.txt"];
+  // 원격 사용자가 처음 열 때 강제로 닫아 버리는 파일
+  // (공포 연출은 드물수록 효과적이라 한 개만: 한서진의 생존이 담긴 파일)
+  const FORCE_CLOSE_FILES = ["음성메모_1101.txt"];
 
   const state = {
     selectedMail: 0,          // 메일 목록에서 선택된 메일
@@ -56,9 +57,7 @@
     triedAdmin: false,        // 관리자 로그인을 시도했는지
     forceClosed: {},          // 이미 강제 종료를 당한 창
     chatHijacked: false,      // 메신저 입력 가로채기 발생 여부
-    reportHijacked: false,    // 보고서 입력 가로채기 발생 여부
-    reportAnswers: ["", "", ""],  // 고른 답
-    reportEvidence: ["", "", ""], // 고른 근거 단서
+    reportAnswers: ["", "", ""],  // 입력한 답
     reportResult: "",             // "" | "incomplete" | "rejected" | "solved"
     submitsLeft: 3,               // 남은 제출 기회
     topZ: 10,                 // 맨 앞 창의 z-index
@@ -70,21 +69,23 @@
      --------------------------------------------------------- */
 
   // 단서 수첩에 기록될 문장들
+  // 원칙: 수첩에는 '무엇이 어디에 있는지(관찰)'만 적고, 보고서의 정답(이름, 계정)은 적지 않음
+  //      → 정답은 플레이어가 직접 파일을 다시 열어 확인해야 함
   const CLUES = {
-    c_admin: "관리자 원격 로그인 권한을 sec_choi가 11/05 03:12에 해제함",
-    c_order: '보안팀 최문혁: "보험" 폴더를 발견하면 열지 말고 즉시 연락하라고 지시함',
+    c_admin: "관리자 원격 로그인 권한이 11/05 03:12에 누군가에 의해 해제됨",
+    c_order: '보안팀장: "보험" 폴더를 발견하면 열지 말고 즉시 연락하라고 지시함',
     c_notice: '전사공지: 10/14 02:10 박정호 단독 작업 중 추락. "다른 인원 없었음"',
     c_hr: "한서진 11/03부 무기한 휴직. 문의처가 인사팀이 아니라 보안팀",
     c_mail4: '한서진 → 김도윤: "무슨 일 생기면 보험 폴더. 비번은 그때 그거"',
     c_pwhint: "보험 폴더 비밀번호 = 팀 첫 회식 가게 이름 (사진 폴더에 사진이 있음)",
     c_login: "한서진 계정이 어제 23:47에 다른 기기에서 접속됨. 실종자인데?",
-    c_sign: "팀 첫 회식 장소: 달빛포차",
+    c_sign: "팀 첫 회식 장소의 간판 사진을 찾음",
     c_diary: "업무일지: CCTV 서버 삭제 전에 원본을 복사해 둠. 누군가 휴지통을 비우려 함",
     c_memo: "공지(02:10, 단독)와 영상(01:52, 두 명) 사이 18분의 공백",
-    c_cctv: "01:52 CCTV: 박정호 옆에 보안팀 조끼를 입은 사람이 있음",
-    c_report: "사고보고서 원본: 현장 동행자 최문혁(01:40~02:05). 수정본에서 삭제됨",
-    c_voice: '한서진 음성메모: PC에 원격 침입을 당함. "hsj_backup은 나예요. 난 살아 있어요"',
-    c_log: "접속 기록: 실종 후 파일 삭제는 sec_choi(원격). 23:47 접속은 hsj_backup",
+    c_cctv: "01:52 CCTV: 박정호 옆에 보안팀 조끼를 입은 사람이 한 명 더 있음",
+    c_report: "사고보고서 원본: 수정본에서 '현장 동행자' 항목이 통째로 삭제됨",
+    c_voice: "한서진 음성메모: 누군가 원격으로 PC에 들어온다고 함. 접속 기록을 보라고 남김",
+    c_log: "접속 기록: 실종 이후에도 원격 계정이 파일을 지웠고, 외부 계정이 메신저에 로그인함",
     c_photo: "5분 전에 찍힌 내 뒷모습 사진. 누군가 지금 나를 보고 있다",
   };
 
@@ -288,31 +289,27 @@
   const LOGIN_PASSWORDS = ["콩이0412", "0412콩이"];
   const FOLDER_PASSWORD = "달빛포차";
 
-  // 보고서 문항 (답은 직접 입력)
+  // 보고서 문항 (단답형 직접 입력)
   // accepted: 정답으로 인정하는 표기들 (띄어쓰기, 밑줄, 대소문자, 호칭은 무시하고 비교)
-  // requires: 이 단서를 모두 찾아야 문항이 열림
-  // evidence: 정답으로 인정되는 근거 단서 (이 중 하나를 골라야 함)
+  // requires: 이 단서를 모두 찾아야 입력칸이 열림 (조사 없이 찍는 것 방지)
   const QUESTIONS = [
     {
       question: "10/14 01:52, 박정호 곁에 있던 사람은?",
       placeholder: "이름을 입력",
       accepted: ["최문혁", "최팀장", "보안팀장", "최문혁보안팀장", "보안팀장최문혁", "보안팀최문혁", "secchoi"],
       requires: ["c_cctv", "c_report"],
-      evidence: ["c_cctv", "c_report"],
     },
     {
       question: "한서진 실종 후 이 PC의 파일을 지운 계정은?",
       placeholder: "계정 이름을 입력",
       accepted: ["secchoi", "최문혁"],
-      requires: ["c_log"],
-      evidence: ["c_log"],
+      requires: ["c_log", "c_voice"],
     },
     {
       question: "어제 23:47, 한서진 계정으로 접속한 사람은?",
       placeholder: "이름 또는 계정을 입력",
       accepted: ["한서진", "서진", "hsjbackup", "hsj"],
       requires: ["c_voice", "c_log"],
-      evidence: ["c_voice", "c_log"],
     },
   ];
 
@@ -374,12 +371,13 @@
     ],
     D: [
       [
-        "세 번째 보고서도 반려되었다.",
-        '<span class="redt">[원격 사용자] 이준 씨는 아무것도 못 찾은 걸로 하죠.</span>',
-        "사무실 불이 끝에서부터 하나씩 꺼진다.",
-        "보험 폴더는 그날 밤 사라졌다. 아무도 그 이름을 다시 꺼내지 않았다.",
+        "메일 창을 닫으려다 손이 미끄러졌다.",
+        "그 문장은 한 달 전, 한서진이 받았던 메시지와 똑같았다.",
+        "다음 날 아침, 당신은 보안팀으로 향했다.",
+        "그날 밤, 이 PC의 접속 기록에 한 줄이 더 남았다.",
+        '<span class="redt">lee_jun · 본 PC · 로그아웃 (마지막 정상 로그인)</span>',
       ],
-      "ENDING D · 반려된 보고서",
+      "ENDING D · 혼자 오세요",
     ],
   };
 
@@ -944,11 +942,6 @@
         </div>`;
     }
 
-    // 근거로 고를 수 있는 단서 = 지금까지 찾은 단서
-    const evidenceOptions = (i) => state.clues.map((key) =>
-      `<option value="${key}" ${state.reportEvidence[i] === key ? "selected" : ""}>${CLUES[key]}</option>`
-    ).join("");
-
     const questions = QUESTIONS.map((q, i) => {
       if (!isUnlocked(q)) {
         return `
@@ -965,17 +958,12 @@
         <div class="q">
           <label for="q${i}">${i + 1}. ${q.question}</label>
           <input id="q${i}" name="q${i}" autocomplete="off" placeholder="${q.placeholder}" value="${saved}">
-          <label for="e${i}" class="dim" style="margin-top:6px">근거 단서</label>
-          <select id="e${i}" name="e${i}">
-            <option value="">근거 선택…</option>
-            ${evidenceOptions(i)}
-          </select>
         </div>`;
     }).join("");
 
     // 제출 결과: 몇 개 맞았는지는 절대 알려 주지 않음
     const messages = {
-      incomplete: `<p class="dim" style="margin-top:12px">모든 문항에 답과 근거를 채워야 제출할 수 있다.</p>`,
+      incomplete: `<p class="dim" style="margin-top:12px">세 칸을 모두 채워야 제출할 수 있다.</p>`,
       rejected: `<p class="redt" style="margin-top:12px">보고서가 반려되었다. 어딘가 틀렸다.</p>`,
     };
 
@@ -984,7 +972,7 @@
     return `
       <form id="rf">
         <p class="dim" style="margin-top:0">
-          세 가지 답을 직접 적고, 각각 근거가 되는 단서를 함께 고르세요.
+          조사한 내용을 바탕으로 세 가지 답을 짧게 적으세요.
           문항은 필요한 단서를 찾으면 열립니다.
         </p>
         ${questions}
@@ -1036,11 +1024,6 @@
     log() {
       openWindow("log", "접속 기록", renderAccessLog, 640, 380);
       addClue("c_log");
-      // 원격 세션 중에 처음 열면 3초 뒤 강제 종료
-      if (state.event1Done && !state.forceClosed.log) {
-        state.forceClosed.log = true;
-        setTimeout(() => forceClose("log", "원격 사용자가 접속 기록 창을 닫았습니다"), 3000);
-      }
     },
     notes() {
       openWindow("notes", "단서 수첩", renderNotes, 420, 440);
@@ -1183,30 +1166,14 @@
     }, 1500);
   }
 
-  // 입력 가로채기 ②: 보고서 1번에 정답을 적으면 원격이 지우고 다른 답을 써 넣음
-  function hijackReport(input) {
-    state.reportHijacked = true;
-    const fakeAnswer = "아무도 없었다";
-
-    setTimeout(() => {
-      moveGhostCursor(input, () => {
-        input.blur();
-        input.value = "";
-        typeValue(input, fakeAnswer, () => {
-          state.reportAnswers[0] = fakeAnswer;
-          glitch();
-
-          const warning = document.createElement("p");
-          warning.className = "redt";
-          warning.style.margin = "4px 0 0";
-          warning.style.fontSize = "13px";
-          warning.textContent = "이 항목이 원격으로 수정되었습니다.";
-          input.after(warning);
-
-          hideGhostCursor(500);
-        });
-      });
-    }, 700);
+  // 여러 입력칸에 차례로 글자 써 넣기 (fields: [[입력칸, 글자], ...])
+  function typeSequence(fields, onDone) {
+    if (!fields.length) return onDone && onDone();
+    const [[input, text], ...rest] = fields;
+    moveGhostCursor(input, () => {
+      input.value = "";
+      typeValue(input, text, () => setTimeout(() => typeSequence(rest, onDone), 250));
+    });
   }
 
   /* ---------------------------------------------------------
@@ -1230,15 +1197,7 @@
       typeText($("#gt"), "…거기까지만 보세요.\n\n지금 닫으면, 아무 일도 없었던 겁니다.", () => hideGhostCursor(900));
     };
 
-    setTimeout(() => {
-      if (windows["f:보험"]) {
-        // 보험 폴더 창이 열려 있으면 먼저 닫아 버림
-        forceClose("f:보험", "원격 사용자가 보험 폴더를 닫았습니다");
-        setTimeout(() => moveGhostCursor($("#desk"), openWarningNote), 2200);
-      } else {
-        moveGhostCursor($("#desk"), openWarningNote);
-      }
-    }, 1000);
+    setTimeout(() => moveGhostCursor($("#desk"), openWarningNote), 1000);
   }
 
   // 이벤트 2: 음성메모를 읽은 뒤, 뒷모습 사진과 협박 메시지
@@ -1300,6 +1259,52 @@
         <h2 style="animation-delay:${titleDelay}s">${title}</h2>
         <button class="btn" data-act="restart" style="animation-delay:${buttonDelay}s">처음부터</button>
       </div>`;
+  }
+
+  // 엔딩 D: 보고서를 3번 틀리면, 원격 사용자가 보고서를 빼앗아 가짜 답으로 제출함
+  function startEndingD() {
+    APPS.report();
+    const inputs = [0, 1, 2].map((i) => $("#q" + i));
+    const fakeAnswers = ["아무도 없었다", "없음", "없음"];
+    const submitButton = $("#rf .btn");
+
+    glitch();
+    showToast("원격 사용자가 보고서를 작성하고 있습니다", "red");
+
+    setTimeout(() => {
+      typeSequence(inputs.map((input, i) => [input, fakeAnswers[i]]), () => {
+        // 제출 버튼을 누름
+        moveGhostCursor(submitButton, () => {
+          submitButton.style.background = "var(--red)";
+          setTimeout(() => {
+            closeWindow("report");
+            hideGhostCursor(300);
+
+            // 한서진이 받았던 것과 같은 문장의 메일이 도착
+            MAILS.unshift({
+              from: "최문혁 (보안팀장)",
+              to: "이준",
+              date: "오늘 " + formatTime(gameMinutes),
+              subject: "[보안] 보고서 잘 받았습니다",
+              clue: null,
+              body: `이준 씨,
+
+보고서 잘 받았습니다.
+사고 당시 현장에는 아무도 없었다. 맞죠?
+
+내일 아침 일찍 보안팀으로 오세요.
+혼자.`,
+            });
+            state.selectedMail = 0;
+            closeWindow("mail");
+            APPS.mail();
+            glitch();
+
+            setTimeout(() => showEnding(renderEnding(...ENDINGS.D)), 7000);
+          }, 400);
+        });
+      });
+    }, 1200);
   }
 
   function showEnding(html) {
@@ -1506,19 +1511,15 @@
   function submitReport(form) {
     const data = new FormData(form);
     state.reportAnswers = [0, 1, 2].map((i) => (data.get("q" + i) || "").trim());
-    state.reportEvidence = [0, 1, 2].map((i) => data.get("e" + i) || "");
 
     // 빈칸이 있으면 기회를 쓰지 않고 안내만
-    const hasBlank = [...state.reportAnswers, ...state.reportEvidence].some((v) => !v);
-    if (hasBlank) {
+    if (state.reportAnswers.some((v) => !v)) {
       state.reportResult = "incomplete";
       return rerender("report");
     }
 
-    // 답과 근거가 모두 맞아야 정답
-    const allCorrect = QUESTIONS.every((q, i) =>
-      isCorrectAnswer(i, state.reportAnswers[i]) && q.evidence.includes(state.reportEvidence[i])
-    );
+    // 세 답이 모두 맞아야 정답 (몇 개 맞았는지는 알려 주지 않음)
+    const allCorrect = QUESTIONS.every((q, i) => isCorrectAnswer(i, state.reportAnswers[i]));
 
     if (allCorrect) {
       state.reportResult = "solved";
@@ -1527,7 +1528,7 @@
 
     state.submitsLeft--;
     if (state.submitsLeft <= 0) {
-      return showEnding(renderEnding(...ENDINGS.D));
+      return startEndingD();
     }
 
     state.reportResult = "rejected";
@@ -1559,24 +1560,13 @@
 
   // 보고서 입력값을 기억해 둠 (새 단서로 보고서가 다시 그려져도 유지되도록)
   function rememberReportField(field) {
-    const match = /^([qe])(\d)$/.exec(field.id);
-    if (!match) return;
-    const list = match[1] === "q" ? state.reportAnswers : state.reportEvidence;
-    list[Number(match[2])] = field.value;
+    const match = /^q(\d)$/.exec(field.id);
+    if (match) state.reportAnswers[Number(match[1])] = field.value;
   }
 
   document.addEventListener("input", (event) => rememberReportField(event.target));
 
-  // 입력을 마쳤을 때(칸을 벗어날 때): 원격 세션 중 1번에 정답을 적으면 가로채기
-  document.addEventListener("change", (event) => {
-    const field = event.target;
-    rememberReportField(field);
-
-    const isTrigger = field.id === "q0" && isCorrectAnswer(0, field.value);
-    if (isTrigger && state.event1Done && !state.reportHijacked) {
-      hijackReport(field);
-    }
-  });
+  document.addEventListener("change", (event) => rememberReportField(event.target));
 
   // 창 드래그 (제목 표시줄을 잡고 끌기)
   document.addEventListener("pointerdown", (event) => {
