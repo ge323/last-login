@@ -918,6 +918,9 @@
 
   // 열려 있는 창의 내용 새로 그리기
   function rerender(id) {
+    if (id === "msg" && state.messengerLocked) {
+      return; // 타이핑이 끝나면 한 번에 다시 그림
+    }
     if (windows[id]) {
       windows[id].querySelector(".body").innerHTML = renderers[id]();
     }
@@ -1280,9 +1283,15 @@
 
   // 원격 커서를 요소 위로 움직이고, 도착하면 onArrive 실행
   // 움직이는 동안 플레이어의 커서는 숨겨지고 클릭도 막힘
+  let ghostWatchdog = 0;
+
   function moveGhostCursor(target, onArrive) {
     const cursor = $("#gc");
     document.body.classList.add("taken");
+
+    // 안전장치: 어떤 이유로든 원격 조작이 8초 넘게 안 끝나면 조작권을 강제로 돌려줌
+    clearTimeout(ghostWatchdog);
+    ghostWatchdog = setTimeout(() => hideGhostCursor(0), 8000);
 
     // 처음 나타날 때는 오른쪽 위에서 시작
     if (cursor.style.display !== "block") {
@@ -1304,6 +1313,7 @@
 
   // 원격 커서를 숨기고 플레이어에게 조작권 돌려주기
   function hideGhostCursor(delay = 600) {
+    clearTimeout(ghostWatchdog);
     setTimeout(() => {
       $("#gc").style.display = "none";
       document.body.classList.remove("taken");
@@ -1331,7 +1341,12 @@
   function typeText(element, text, onDone) {
     let i = 0;
     const timer = setInterval(() => {
-      if (!element.isConnected) return clearInterval(timer);
+      // 대상이 화면에서 사라져도 '끝났다'는 신호는 꼭 보냄 (안 보내면 조작권이 영영 안 돌아옴)
+      if (!element.isConnected) {
+        clearInterval(timer);
+        if (onDone) onDone();
+        return;
+      }
       element.textContent = text.slice(0, ++i);
       sound.key();
       if (i >= text.length) {
@@ -1345,7 +1360,11 @@
   function typeValue(input, text, onDone) {
     let i = 0;
     const timer = setInterval(() => {
-      if (!input.isConnected) return clearInterval(timer);
+      if (!input.isConnected) {
+        clearInterval(timer);
+        if (onDone) onDone();
+        return;
+      }
       input.value = text.slice(0, ++i);
       sound.key();
       if (i >= text.length) {
@@ -1360,19 +1379,23 @@
     if (state.chatHijacked || !state.event2Done || state.gameOver || state.agentKilled) return;
     if (state.selectedChat !== "choi" || !windows.msg) return;
     state.chatHijacked = true;
+    state.messengerLocked = true;
 
     const reply = "네 팀장님. 지금 지우겠습니다.";
 
     setTimeout(() => {
       const input = $("#mi");
       if (!input) {
+        // 그 사이 메신저 창을 닫았으면 다음에 다시 열 때 일어나게 함
         state.chatHijacked = false;
+        state.messengerLocked = false;
         return;
       }
       moveGhostCursor(input, () => {
         typeValue(input, reply, () => {
           setTimeout(() => {
             CHATS.choi.messages.push(["me", reply], ["threat", "착하네요."]);
+            state.messengerLocked = false;
             rerender("msg");
             const chatArea = windows.msg && windows.msg.querySelector(".read");
             if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
