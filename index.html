@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LAST_LOGIN</title>
+
+  <!-- 글꼴 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Nanum+Gothic+Coding&display=swap">
+
+  <!-- 디자인 -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===================== 바탕화면 ===================== -->
+  <div id="desk">
+    <!-- 아이콘은 script.js가 채워 넣음 -->
+    <div class="icons" id="icons"></div>
+  </div>
+
+  <!-- ===================== 작업표시줄 ===================== -->
+  <div id="bar">
+    <span class="start">한결 OS</span>
+    <div id="tasks"></div>
+    <span id="remote">● 원격 세션 활성</span>
+    <span id="clock">23:12</span>
+  </div>
+
+  <!-- 알림이 쌓이는 곳 -->
+  <div id="toasts"></div>
+
+  <!-- 원격 조작 중 플레이어의 클릭을 막는 투명 막 -->
+  <div id="blk"></div>
+
+  <!-- 원격 사용자의 커서 -->
+  <svg id="gc" viewBox="0 0 22 22">
+    <path d="M2 1l0 17 5-4 3 7 3-1-3-7 6 0z" fill="#fff" stroke="#000" stroke-width="1.2"/>
+  </svg>
+
+  <!-- ===================== 시작 화면 ===================== -->
+  <div class="ov" id="boot">
+    <div class="box">
+      <p class="dim">공포 추리 · 프로토타입 · 약 10~15분</p>
+      <h1>LAST_LOGIN</h1>
+      <p>
+        한결물류 IT지원팀 이준. 퇴근 직전, 보안팀장에게서 메일이 온다.
+        3주 전 갑자기 휴직 처리된 직원 <b>한서진</b>의 PC를 오늘 밤 안에 정리하라는 지시다.
+      </p>
+      <p>그런데 그녀의 메신저는 <b>어제도 접속</b>되어 있었다.</p>
+      <p class="dim">
+        메일, 메신저, 파일, 휴지통을 살펴 진실을 맞히세요.
+        중요한 단서는 '단서 수첩'에 자동으로 기록됩니다.
+        확신이 서면 '보고서 제출'을 여세요.
+      </p>
+
+      <div class="login">
+        <div class="av">이</div>
+        <div style="flex:1">
+          <b>이준</b>
+          <div class="dim">IT지원팀 · 대상 PC: hsj-pc-0412</div>
+        </div>
+        <button class="btn" data-act="boot">PC 켜기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 잠금 화면 ===================== -->
+  <div class="ov" id="ls" hidden>
+    <div class="box lsbox">
+      <!-- 배경 사진은 script.js가 그려 넣음 -->
+      <div class="pic" id="wall"></div>
+
+      <form id="lsf" class="lscard">
+        <div class="av">한</div>
+        <div style="flex:1; display:grid; gap:8px">
+          <b>한서진</b>
+          <label for="lpw" class="dim">암호</label>
+          <input id="lpw" autocomplete="off">
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <button class="btn">로그인</button>
+            <button type="button" class="btn" data-act="loginHint">암호 힌트</button>
+            <button type="button" class="btn" data-act="admin">관리자 계정으로 로그인</button>
+          </div>
+          <p id="lsmsg" class="dim" style="margin:0"></p>
+        </div>
+      </form>
+
+      <p class="dim" style="font-size:13px">잠금 화면 배경은 한서진이 직접 찍은 자기 책상 사진이다.</p>
+    </div>
+  </div>
+
+  <!-- ===================== 엔딩 화면 ===================== -->
+  <div class="ov" id="end" hidden></div>
+
+  <!-- 게임 로직 -->
+  <script src="script.js"></script>
+</body>
+</html>
