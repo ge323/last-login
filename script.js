@@ -57,8 +57,10 @@
     forceClosed: {},          // 이미 강제 종료를 당한 창
     chatHijacked: false,      // 메신저 입력 가로채기 발생 여부
     reportHijacked: false,    // 보고서 입력 가로채기 발생 여부
-    reportAnswers: ["", "", ""],
-    reportScore: -1,          // 맞힌 개수 (-1 = 아직 제출 안 함)
+    reportAnswers: ["", "", ""],  // 고른 답
+    reportEvidence: ["", "", ""], // 고른 근거 단서
+    reportResult: "",             // "" | "incomplete" | "rejected" | "solved"
+    submitsLeft: 3,               // 남은 제출 기회
     topZ: 10,                 // 맨 앞 창의 z-index
     keepSending: null,        // 엔딩 B의 '전송 유지' 버튼 동작
   };
@@ -286,12 +288,49 @@
   const LOGIN_PASSWORDS = ["콩이0412", "0412콩이"];
   const FOLDER_PASSWORD = "달빛포차";
 
-  // 보고서 문항 [질문, 보기, 정답]
+  // 보고서 문항 (답은 직접 입력)
+  // accepted: 정답으로 인정하는 표기들 (띄어쓰기, 밑줄, 대소문자, 호칭은 무시하고 비교)
+  // requires: 이 단서를 모두 찾아야 문항이 열림
+  // evidence: 정답으로 인정되는 근거 단서 (이 중 하나를 골라야 함)
   const QUESTIONS = [
-    ["10/14 01:52, 박정호 곁에 있던 사람은?", ["아무도 없었다", "김도윤", "최문혁", "한서진"], "최문혁"],
-    ["한서진 실종 후 이 PC의 파일을 지운 계정은?", ["hsj", "sec_choi", "hsj_backup", "admin"], "sec_choi"],
-    ["어제 23:47, 한서진 계정으로 접속한 사람은?", ["최문혁", "김도윤", "한서진 본인", "이준(나)"], "한서진 본인"],
+    {
+      question: "10/14 01:52, 박정호 곁에 있던 사람은?",
+      placeholder: "이름을 입력",
+      accepted: ["최문혁", "최팀장", "보안팀장", "최문혁보안팀장", "보안팀장최문혁", "보안팀최문혁", "secchoi"],
+      requires: ["c_cctv", "c_report"],
+      evidence: ["c_cctv", "c_report"],
+    },
+    {
+      question: "한서진 실종 후 이 PC의 파일을 지운 계정은?",
+      placeholder: "계정 이름을 입력",
+      accepted: ["secchoi", "최문혁"],
+      requires: ["c_log"],
+      evidence: ["c_log"],
+    },
+    {
+      question: "어제 23:47, 한서진 계정으로 접속한 사람은?",
+      placeholder: "이름 또는 계정을 입력",
+      accepted: ["한서진", "서진", "hsjbackup", "hsj"],
+      requires: ["c_voice", "c_log"],
+      evidence: ["c_voice", "c_log"],
+    },
   ];
+
+  // 입력한 답을 비교하기 좋게 다듬기
+  // "최문혁 팀장님" → "최문혁", "HSJ_backup" → "hsjbackup"
+  // 결과는 두 가지: 호칭만 뗀 것, 끝의 '팀장'까지 뗀 것
+  function normalizeAnswer(text) {
+    let s = text.toLowerCase().replace(/[\s_\-.()]/g, "");
+    s = s.replace(/(님|씨|본인)$/, "");
+    const withoutTitle = s.endsWith("팀장") ? s.slice(0, -2) : s;
+    return [s, withoutTitle];
+  }
+
+  const isCorrectAnswer = (index, text) =>
+    normalizeAnswer(text || "").some((form) => QUESTIONS[index].accepted.includes(form));
+
+  // 보고서 제출 기회
+  const MAX_SUBMITS = 3;
 
   // 엔딩 [본문 줄들, 엔딩 제목]
   const ENDINGS = {
@@ -332,6 +371,15 @@
         "3층, 2층, 1층.\n비상구 문 너머에서 누군가 손을 흔든다.",
       ],
       "ENDING C · 마지막 접속자",
+    ],
+    D: [
+      [
+        "세 번째 보고서도 반려되었다.",
+        '<span class="redt">[원격 사용자] 이준 씨는 아무것도 못 찾은 걸로 하죠.</span>',
+        "사무실 불이 끝에서부터 하나씩 꺼진다.",
+        "보험 폴더는 그날 밤 사라졌다. 아무도 그 이름을 다시 꺼내지 않았다.",
+      ],
+      "ENDING D · 반려된 보고서",
     ],
   };
 
@@ -661,6 +709,7 @@
     const total = Object.keys(CLUES).length;
     showToast(`단서 수첩에 기록됨 (${state.clues.length}/${total})`, "", () => APPS.notes());
     rerender("notes");
+    rerender("report"); // 새 단서로 보고서 문항이 열릴 수 있음
   }
 
   // 화면이 순간 깨지는 효과
@@ -800,27 +849,15 @@
     return `<p class="dim" style="margin-top:0">${state.clues.length} / ${total}개 기록</p>${items}`;
   }
 
-  function renderReport() {
-    const questions = QUESTIONS.map(([question, options], i) => {
-      const optionTags = options.map((o) =>
-        `<option ${state.reportAnswers[i] === o ? "selected" : ""}>${o}</option>`
-      ).join("");
-      return `
-        <div class="q">
-          <label for="q${i}">${i + 1}. ${question}</label>
-          <select id="q${i}" name="q${i}">
-            <option value="">선택…</option>
-            ${optionTags}
-          </select>
-        </div>`;
-    }).join("");
+  // 문항이 열렸는지 (필요한 단서를 모두 찾았는지)
+  const isUnlocked = (q) => q.requires.every((key) => state.clues.includes(key));
 
-    let result = "";
-    if (state.reportScore >= 0 && state.reportScore < 3) {
-      result = `<p class="redt" style="margin-top:12px">확신할 수 있는 답: ${state.reportScore} / 3. 아직 무언가 놓치고 있다.</p>`;
-    } else if (state.reportScore === 3) {
-      result = `
-        <p style="margin-top:12px">확신할 수 있는 답: 3 / 3. 이제 선택해야 한다.</p>
+  function renderReport() {
+    // 정답을 맞힌 뒤: 엔딩 선택
+    if (state.reportResult === "solved") {
+      return `
+        <p style="margin-top:0">보고서가 완성되었다. 모든 근거가 한 사람을 가리킨다.</p>
+        <p>이제 이 보고서로 무엇을 할지 선택해야 한다.</p>
         <div class="ends">
           <button class="btn red" data-act="end" data-arg="A">보험 폴더를 지우고 퇴근한다</button>
           <button class="btn" data-act="end" data-arg="B">보험 폴더를 기자에게 보낸다</button>
@@ -828,13 +865,54 @@
         </div>`;
     }
 
+    // 근거로 고를 수 있는 단서 = 지금까지 찾은 단서
+    const evidenceOptions = (i) => state.clues.map((key) =>
+      `<option value="${key}" ${state.reportEvidence[i] === key ? "selected" : ""}>${CLUES[key]}</option>`
+    ).join("");
+
+    const questions = QUESTIONS.map((q, i) => {
+      if (!isUnlocked(q)) {
+        return `
+          <div class="q locked">
+            <b>${i + 1}. ${q.question}</b>
+            <p class="dim" style="margin:4px 0 0">잠김 · 아직 판단할 근거가 부족하다.</p>
+          </div>`;
+      }
+
+      // 입력값을 HTML에 넣기 전에 특수문자 처리
+      const saved = state.reportAnswers[i].replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+      return `
+        <div class="q">
+          <label for="q${i}">${i + 1}. ${q.question}</label>
+          <input id="q${i}" name="q${i}" autocomplete="off" placeholder="${q.placeholder}" value="${saved}">
+          <label for="e${i}" class="dim" style="margin-top:6px">근거 단서</label>
+          <select id="e${i}" name="e${i}">
+            <option value="">근거 선택…</option>
+            ${evidenceOptions(i)}
+          </select>
+        </div>`;
+    }).join("");
+
+    // 제출 결과: 몇 개 맞았는지는 절대 알려 주지 않음
+    const messages = {
+      incomplete: `<p class="dim" style="margin-top:12px">모든 문항에 답과 근거를 채워야 제출할 수 있다.</p>`,
+      rejected: `<p class="redt" style="margin-top:12px">보고서가 반려되었다. 어딘가 틀렸다.</p>`,
+    };
+
+    const allUnlocked = QUESTIONS.every(isUnlocked);
+
     return `
       <form id="rf">
-        <p class="dim" style="margin-top:0">단서 수첩을 근거로 세 가지를 확정하세요. 세 개를 모두 맞혀야 확신할 수 있습니다.</p>
+        <p class="dim" style="margin-top:0">
+          세 가지 답을 직접 적고, 각각 근거가 되는 단서를 함께 고르세요.
+          문항은 필요한 단서를 찾으면 열립니다.
+        </p>
         ${questions}
-        <button class="btn">제출</button>
+        <button class="btn" ${allUnlocked ? "" : "disabled"}>제출</button>
+        <span class="dim" style="margin-left:8px">남은 제출 기회: ${state.submitsLeft}</span>
       </form>
-      ${result}`;
+      ${messages[state.reportResult] || ""}`;
   }
 
   function renderFolderLock() {
@@ -1020,22 +1098,28 @@
     }, 1500);
   }
 
-  // 입력 가로채기 ②: 보고서 1번에 정답을 고르면 원격이 답을 바꿔 놓음
-  function hijackReport(select) {
+  // 입력 가로채기 ②: 보고서 1번에 정답을 적으면 원격이 지우고 다른 답을 써 넣음
+  function hijackReport(input) {
     state.reportHijacked = true;
+    const fakeAnswer = "아무도 없었다";
+
     setTimeout(() => {
-      moveGhostCursor(select, () => {
-        select.value = "아무도 없었다";
-        glitch();
+      moveGhostCursor(input, () => {
+        input.blur();
+        input.value = "";
+        typeValue(input, fakeAnswer, () => {
+          state.reportAnswers[0] = fakeAnswer;
+          glitch();
 
-        const warning = document.createElement("p");
-        warning.className = "redt";
-        warning.style.margin = "4px 0 0";
-        warning.style.fontSize = "13px";
-        warning.textContent = "이 항목이 원격으로 수정되었습니다.";
-        select.after(warning);
+          const warning = document.createElement("p");
+          warning.className = "redt";
+          warning.style.margin = "4px 0 0";
+          warning.style.fontSize = "13px";
+          warning.textContent = "이 항목이 원격으로 수정되었습니다.";
+          input.after(warning);
 
-        hideGhostCursor(500);
+          hideGhostCursor(500);
+        });
       });
     }, 700);
   }
@@ -1336,9 +1420,36 @@
   // 보고서 제출
   function submitReport(form) {
     const data = new FormData(form);
-    state.reportAnswers = [0, 1, 2].map((i) => data.get("q" + i) || "");
-    state.reportScore = state.reportAnswers.filter((answer, i) => answer === QUESTIONS[i][2]).length;
+    state.reportAnswers = [0, 1, 2].map((i) => (data.get("q" + i) || "").trim());
+    state.reportEvidence = [0, 1, 2].map((i) => data.get("e" + i) || "");
+
+    // 빈칸이 있으면 기회를 쓰지 않고 안내만
+    const hasBlank = [...state.reportAnswers, ...state.reportEvidence].some((v) => !v);
+    if (hasBlank) {
+      state.reportResult = "incomplete";
+      return rerender("report");
+    }
+
+    // 답과 근거가 모두 맞아야 정답
+    const allCorrect = QUESTIONS.every((q, i) =>
+      isCorrectAnswer(i, state.reportAnswers[i]) && q.evidence.includes(state.reportEvidence[i])
+    );
+
+    if (allCorrect) {
+      state.reportResult = "solved";
+      return rerender("report");
+    }
+
+    state.submitsLeft--;
+    if (state.submitsLeft <= 0) {
+      return showEnding(renderEnding(...ENDINGS.D));
+    }
+
+    state.reportResult = "rejected";
     rerender("report");
+    glitch();
+    // 틀릴 때마다 원격 사용자가 보고서를 들여다봄
+    if (state.event1Done) showToast("원격 사용자가 보고서를 열람했습니다", "red");
   }
 
   // 클릭: data-act가 있는 요소를 누르면 ACTIONS에서 찾아 실행
@@ -1361,12 +1472,24 @@
     if (form.id === "rf") submitReport(form);
   });
 
-  // 보고서 선택 변경: 원격 세션 중 1번에 정답을 고르면 가로채기
+  // 보고서 입력값을 기억해 둠 (새 단서로 보고서가 다시 그려져도 유지되도록)
+  function rememberReportField(field) {
+    const match = /^([qe])(\d)$/.exec(field.id);
+    if (!match) return;
+    const list = match[1] === "q" ? state.reportAnswers : state.reportEvidence;
+    list[Number(match[2])] = field.value;
+  }
+
+  document.addEventListener("input", (event) => rememberReportField(event.target));
+
+  // 입력을 마쳤을 때(칸을 벗어날 때): 원격 세션 중 1번에 정답을 적으면 가로채기
   document.addEventListener("change", (event) => {
-    const select = event.target;
-    const isTrigger = select.id === "q0" && select.value === "최문혁";
+    const field = event.target;
+    rememberReportField(field);
+
+    const isTrigger = field.id === "q0" && isCorrectAnswer(0, field.value);
     if (isTrigger && state.event1Done && !state.reportHijacked) {
-      hijackReport(select);
+      hijackReport(field);
     }
   });
 
