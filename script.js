@@ -11,10 +11,11 @@
    7. 화면 그리기 (각 앱의 HTML)
    8. 앱 열기
    9. 공포 연출 (원격 커서, 강제 종료, 입력 가로채기)
-   10. 이벤트 1, 2
-   11. 엔딩
-   12. 버튼 동작 (Actions)
-   13. 입력 처리 (클릭, 제출, 선택, 드래그)
+   10. 이벤트 1, 2, 김도윤 메시지
+   11. 명령 프롬프트
+   12. 엔딩
+   13. 버튼 동작 (Actions)
+   14. 입력 처리 (클릭, 제출, 선택, 드래그, 탭 이탈)
    ========================================================= */
 {
   /* ---------------------------------------------------------
@@ -33,6 +34,123 @@
     const mm = String(minutes % 60).padStart(2, "0");
     return `${hh}:${mm}`;
   }
+
+  // 플레이어가 입력한 글자를 HTML에 안전하게 넣기
+  const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+  /* ---------------------------------------------------------
+     1-1. 사운드 (파일 없이 Web Audio로 직접 만든 소리)
+     --------------------------------------------------------- */
+
+  const sound = {
+    ctx: null,
+    master: null,
+    hum: null,
+    enabled: true,
+
+    // 브라우저 정책상 첫 클릭 이후에만 소리를 켤 수 있음
+    start() {
+      if (this.ctx) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      this.ctx = new AudioCtx();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.8;
+      this.master.connect(this.ctx.destination);
+    },
+
+    ready() {
+      return this.ctx && this.enabled;
+    },
+
+    // 낮게 웅웅거리는 잡음 (브라운 노이즈)
+    noiseBuffer(seconds) {
+      const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * seconds, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < data.length; i++) {
+        last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+        data[i] = last * 3.5;
+      }
+      return buffer;
+    },
+
+    // 짧은 잡음 한 번 (타자 소리, 하드디스크 긁는 소리 재료)
+    burst(duration, filterType, frequency, volume, when = 0) {
+      if (!this.ready()) return;
+      const t = this.ctx.currentTime + when;
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.noiseBuffer(Math.max(duration, 0.05));
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.value = frequency;
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(volume, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+      source.connect(filter).connect(gain).connect(this.master);
+      source.start(t);
+      source.stop(t + duration + 0.02);
+    },
+
+    // 단순한 음 하나
+    tone(frequency, duration, type = "sine", volume = 0.15, when = 0) {
+      if (!this.ready()) return;
+      const t = this.ctx.currentTime + when;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = frequency;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(volume, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+      osc.connect(gain).connect(this.master);
+      osc.start(t);
+      osc.stop(t + duration + 0.05);
+    },
+
+    // PC 팬 소음 (로그인 후 계속)
+    startHum() {
+      if (!this.ctx || this.hum) return;
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.noiseBuffer(4);
+      source.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 380;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      source.connect(filter).connect(gain).connect(this.master);
+      source.start();
+      gain.gain.linearRampToValueAtTime(this.enabled ? 0.12 : 0, this.ctx.currentTime + 2);
+      this.hum = gain;
+    },
+
+    notify() { this.tone(880, 0.18); this.tone(1320, 0.25, "sine", 0.12, 0.09); },         // 메시지 알림
+    alert() { this.tone(220, 0.3, "triangle", 0.2); this.tone(196, 0.45, "triangle", 0.18, 0.2); }, // 경고 알림
+    error() { this.tone(150, 0.2, "square", 0.07); },                                          // 암호 틀림
+    key() { this.burst(0.03, "highpass", 2500, 0.08); },                                       // 타자 소리
+    buzz() { this.tone(60, 0.25, "sawtooth", 0.1); this.burst(0.08, "bandpass", 3000, 0.1, 0.05); }, // 화면 깨짐
+
+    // 원격 접속 순간: 하드디스크 긁는 소리 + 낮은 울림
+    scratch() {
+      for (let i = 0; i < 16; i++) {
+        this.burst(0.04 + Math.random() * 0.05, "bandpass", 1200 + Math.random() * 2400, 0.25, i * 0.09 + Math.random() * 0.05);
+      }
+      this.tone(55, 2.2, "sine", 0.25);
+    },
+
+    // 문 열리는 소리 (낮은 쿵 + 잡음)
+    door() {
+      this.tone(70, 0.6, "sine", 0.45);
+      this.burst(0.5, "lowpass", 600, 0.4, 0.05);
+      this.burst(0.25, "bandpass", 900, 0.2, 0.5);
+    },
+
+    setEnabled(on) {
+      this.enabled = on;
+      if (this.hum) this.hum.gain.value = on ? 0.12 : 0;
+    },
+  };
 
   /* ---------------------------------------------------------
      2. 게임 상태
@@ -62,7 +180,55 @@
     submitsLeft: 3,               // 남은 제출 기회
     topZ: 10,                 // 맨 앞 창의 z-index
     keepSending: null,        // 엔딩 B의 '전송 유지' 버튼 동작
+    gameOver: false,          // 엔딩이 시작되면 다른 이벤트를 멈춤
+    agentKilled: false,       // 명령 프롬프트로 원격 프로그램을 껐는지
+    tabWarnings: 0,           // 탭 이탈 경고를 받은 횟수
+    runNumber: 0,             // 이번이 몇 번째 플레이인지
+    cmdLines: [               // 명령 프롬프트 화면에 쌓인 줄
+      "Hangyeol OS [버전 10.0.19045]",
+      "(c) Hangyeol Logistics. All rights reserved.",
+      "",
+      "명령어 목록을 보려면 help를 입력하세요.",
+      "",
+    ],
   };
+
+  /* ---------------------------------------------------------
+     2-1. 회차 기억과 엔딩 도감 (이 브라우저에만 저장됨)
+     --------------------------------------------------------- */
+
+  const SAVE_KEY = "last_login_save_v1";
+
+  function loadSave() {
+    const empty = { runs: 0, endings: [], history: [] };
+    try {
+      return Object.assign(empty, JSON.parse(localStorage.getItem(SAVE_KEY)) || {});
+    } catch {
+      return empty;
+    }
+  }
+
+  function writeSave() {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(save));
+    } catch {
+      // 저장이 막힌 브라우저(시크릿 모드 등)에서는 그냥 기억하지 않음
+    }
+  }
+
+  const save = loadSave();
+  const previousRuns = save.runs; // 이번 판을 시작하기 전까지의 플레이 횟수
+
+  // 엔딩 도감 [엔딩 키, 이름] (도감에 보이는 순서)
+  const ENDING_DEX = [
+    ["C", "마지막 접속자"],
+    ["B", "보험금 지급"],
+    ["A", "정리된 사람"],
+    ["D", "혼자 오세요"],
+    ["B_FAIL", "늦었다"],
+    ["H", "연결 끊김"],
+  ];
+  const ENDING_NAMES = Object.fromEntries(ENDING_DEX);
 
   /* ---------------------------------------------------------
      3. 게임 데이터
@@ -87,6 +253,8 @@
     c_voice: "한서진 음성메모: 누군가 원격으로 PC에 들어온다고 함. 접속 기록을 보라고 남김",
     c_log: "접속 기록: 실종 이후에도 원격 계정이 파일을 지웠고, 외부 계정이 메신저에 로그인함",
     c_photo: "5분 전에 찍힌 내 뒷모습 사진. 누군가 지금 나를 보고 있다",
+    c_doyun: "김도윤: 최 팀장에게 '보험'의 존재를 말한 건 자신이었다고 고백함",
+    c_agent: "명령 프롬프트: 다른 계정의 원격 프로그램이 이 PC에서 실행 중",
   };
 
   // 메일함
@@ -379,6 +547,17 @@
       ],
       "ENDING D · 혼자 오세요",
     ],
+    // 숨겨진 엔딩: 명령 프롬프트로 원격 프로그램을 끔
+    H: [
+      [
+        "원격 세션이 끊겼다. 처음으로 화면이 조용해졌다.",
+        "팬 소리만 남은 사무실에서, 당신은 잠깐 숨을 골랐다.",
+        "그리고 등 뒤에서 출입문이 열리는 소리가 났다.",
+        "화면으로 볼 수 없게 되자, 그는 직접 왔다.",
+        '<span class="redt">"이준 씨. 거기까지 하죠."</span>',
+      ],
+      "ENDING H · 연결 끊김",
+    ],
   };
 
   /* ---------------------------------------------------------
@@ -432,6 +611,11 @@
       <rect x="6" y="7" width="28" height="26" rx="2" fill="#c9d3cf"/>
       <circle cx="14" cy="15" r="3" fill="#8fb9ae"/>
       <path d="M8 30l9-10 6 6 4-4 5 8z" fill="#3b4a4f"/>
+    </svg>`,
+    cmd: `<svg viewBox="0 0 40 40">
+      <rect x="4" y="7" width="32" height="26" rx="2" fill="#0b0e10" stroke="#c9d3cf" stroke-width="2"/>
+      <path d="M10 15l5 4-5 4" fill="none" stroke="#c9d3cf" stroke-width="2.2"/>
+      <path d="M18 25h9" stroke="#c9d3cf" stroke-width="2.2"/>
     </svg>`,
     txt: `<svg viewBox="0 0 40 40">
       <path d="M9 4h16l7 7v25H9z" fill="#c9d3cf"/>
@@ -767,16 +951,35 @@
      --------------------------------------------------------- */
 
   // 오른쪽 아래 알림 (클릭하면 onClick 실행, 8초 뒤 사라짐)
-  function showToast(text, style = "", onClick) {
-    const toast = document.createElement("button");
-    toast.className = "toast " + style;
+  // style: "" = 조용한 알림, "msg" = 메시지(알림음), "red" = 경고(경고음)
+  // options.key: 같은 key의 알림이 떠 있으면 새로 쌓지 않고 그 칸의 글자만 바꿈
+  // options.duration: 떠 있는 시간 (기본 8초, 반복되는 알림은 짧게)
+  const toastTimers = new Map(); // 알림 → 사라지게 할 타이머
+
+  function showToast(text, style = "", onClick, options = {}) {
+    const { key, duration = 8000 } = options;
+    if (style === "red") sound.alert();
+    if (style === "msg") sound.notify();
+
+    let toast = key && $(`#toasts [data-key="${key}"]`);
+    if (!toast) {
+      toast = document.createElement("button");
+      toast.className = "toast " + style + (key ? " mini" : "");
+      if (key) toast.dataset.key = key;
+      $("#toasts").appendChild(toast);
+    }
     toast.textContent = text;
     toast.onclick = () => {
       toast.remove();
       if (onClick) onClick();
     };
-    $("#toasts").appendChild(toast);
-    setTimeout(() => toast.remove(), 8000);
+
+    // 같은 알림이 다시 오면 사라지는 시간을 처음부터 다시 셈
+    clearTimeout(toastTimers.get(toast));
+    toastTimers.set(toast, setTimeout(() => {
+      toast.remove();
+      toastTimers.delete(toast);
+    }, duration));
   }
 
   // 단서 수첩에 기록 (이미 있으면 무시)
@@ -784,13 +987,14 @@
     if (!key || state.clues.includes(key)) return;
     state.clues.push(key);
     const total = Object.keys(CLUES).length;
-    showToast(`단서 수첩에 기록됨 (${state.clues.length}/${total})`, "", () => APPS.notes());
+    showToast(`단서 수첩에 기록됨 (${state.clues.length}/${total})`, "", () => APPS.notes(), { key: "clue", duration: 2500 });
     rerender("notes");
     rerender("report"); // 새 단서로 보고서 문항이 열릴 수 있음
   }
 
   // 화면이 순간 깨지는 효과
   function glitch() {
+    sound.buzz();
     document.body.classList.add("glitch");
     setTimeout(() => document.body.classList.remove("glitch"), 520);
   }
@@ -894,9 +1098,17 @@
   function renderAccessLog() {
     const rows = ACCESS_LOG.slice();
 
+    // 회차 기억: 지난 판에서 '내'가 남긴 마지막 로그아웃 기록 (날짜는 알 수 없음)
+    save.history
+      .filter((h) => h.run < state.runNumber)
+      .forEach((h) => {
+        rows.push(["??/?? ??:??", "lee_jun", "본 PC", `로그아웃 (마지막 정상 로그인) · ${ENDING_NAMES[h.ending] || "?"}`, "past"]);
+      });
+
     // 원격 세션이 시작된 뒤에는 '지금 활성' 줄이 추가됨
     if (state.event1Done) {
-      rows.push(["오늘 " + formatTime(state.remoteStart), "sec_choi", "원격 · 사내 10.2.0.7", "세션 시작 · 현재 활성", "live"]);
+      const status = state.agentKilled ? "세션 강제 종료됨" : "세션 시작 · 현재 활성";
+      rows.push(["오늘 " + formatTime(state.remoteStart), "sec_choi", "원격 · 사내 10.2.0.7", status, state.agentKilled ? "" : "live"]);
     }
 
     const body = rows.map(([time, account, place, action, rowClass = ""]) => `
@@ -1012,8 +1224,12 @@
     msg() {
       openWindow("msg", "메신저", renderMessenger, 600, 480);
       addClue("c_login");
-      if (state.selectedChat === "doyun") addClue("c_pwhint");
+      readDoyunChat();
       hijackMessenger();
+    },
+    cmd() {
+      openWindow("cmd", "명령 프롬프트", renderCmd, 620, 400);
+      focusCmd();
     },
     pc() {
       openWindow("pc", "내 PC", renderMyPC, 440, 260);
@@ -1041,6 +1257,7 @@
     ["trash", "휴지통"],
     ["log", "접속 기록"],
     ["notes", "단서 수첩"],
+    ["cmd", "명령 프롬프트"],
     ["report", "보고서 제출"],
   ];
 
@@ -1116,6 +1333,7 @@
     const timer = setInterval(() => {
       if (!element.isConnected) return clearInterval(timer);
       element.textContent = text.slice(0, ++i);
+      sound.key();
       if (i >= text.length) {
         clearInterval(timer);
         if (onDone) onDone();
@@ -1129,6 +1347,7 @@
     const timer = setInterval(() => {
       if (!input.isConnected) return clearInterval(timer);
       input.value = text.slice(0, ++i);
+      sound.key();
       if (i >= text.length) {
         clearInterval(timer);
         if (onDone) onDone();
@@ -1138,7 +1357,7 @@
 
   // 입력 가로채기 ①: 최문혁 대화방에서 내 이름으로 답장이 써지고 전송됨
   function hijackMessenger() {
-    if (state.chatHijacked || !state.event2Done) return;
+    if (state.chatHijacked || !state.event2Done || state.gameOver || state.agentKilled) return;
     if (state.selectedChat !== "choi" || !windows.msg) return;
     state.chatHijacked = true;
 
@@ -1187,22 +1406,33 @@
     state.remoteStart = gameMinutes;
 
     glitch();
+    sound.scratch();
     $("#remote").style.display = "inline";
     rerender("log");
     showToast("원격 데스크톱 세션이 연결되었습니다", "red", () => APPS.log());
 
-    // 메모장이 혼자 열리고 경고가 써짐
+    // 메모장이 혼자 열리고 경고가 써짐 (두 번째 판부터는 나를 기억함)
+    const warning = previousRuns > 0
+      ? "…또 여기까지 왔네요.\n\n이번엔 다르게 끝날 것 같아요?"
+      : "…거기까지만 보세요.\n\n지금 닫으면, 아무 일도 없었던 겁니다.";
     const openWarningNote = () => {
       openWindow("ghost", "제목 없음 - 메모장", () => `<pre class="doc" id="gt"></pre>`, 380, 210);
-      typeText($("#gt"), "…거기까지만 보세요.\n\n지금 닫으면, 아무 일도 없었던 겁니다.", () => hideGhostCursor(900));
+      typeText($("#gt"), warning, () => hideGhostCursor(900));
     };
 
     setTimeout(() => moveGhostCursor($("#desk"), openWarningNote), 1000);
+
+    // 김도윤 ①: 누군가 서진의 PC를 켠 걸 눈치챔
+    setTimeout(() => doyunMessage(1, [
+      "…서진씨?",
+      "지금 그 PC 켠 거 서진씨예요?",
+      "아니면 누구예요?",
+    ]), 25000);
   }
 
   // 이벤트 2: 음성메모를 읽은 뒤, 뒷모습 사진과 협박 메시지
   function startEvent2() {
-    if (state.event2Done) return;
+    if (state.event2Done || state.gameOver || state.agentKilled) return;
     state.event2Done = true;
     state.photoTime = gameMinutes - 5; // 5분 전에 찍힌 사진
 
@@ -1238,10 +1468,212 @@
     setTimeout(() => {
       showToast("사진 폴더에 새 파일: " + photoName, "", () => ACTIONS.file(photoName));
     }, 1400);
+
+    // 김도윤 ②: 경고 + 명령 프롬프트 힌트 + 고백
+    setTimeout(() => doyunMessage(2, [
+      "누군지 몰라도, 그 PC 지금 최 팀장이 원격으로 보고 있어요.",
+      "명령 프롬프트에서 tasklist 쳐 봐요. 원격 프로그램이 보일 거예요.",
+      "그거 끄면 더는 못 봐요. …대신 화가 많이 나겠죠.",
+      "그리고 하나만 말할게요.",
+      "최 팀장이 '보험' 얘기를 어떻게 알았는지 알아요?",
+      "내가 말했어요. 그날 아침 불려 가서… 무서워서.",
+      "서진씨한테 미안하다고 전해 줘요. 살아 있으면.",
+    ], "자리 비움"), 30000);
   }
 
   /* ---------------------------------------------------------
-     11. 엔딩
+     10-1. 김도윤 서브 미스터리
+     ---------------------------------------------------------
+     서진의 동료. 처음엔 '보안팀이 읽는다'고 경고하던 사람인데,
+     사실은 그 자신이 최문혁에게 '보험'을 말해 버린 사람이었다.
+     ① 원격 세션 직후: 서진의 PC를 누가 켰는지 묻는다
+     ② 뒷모습 사진 이후: 명령 프롬프트 힌트를 주고, 고백한다 */
+
+  let doyunStage = 0;
+
+  function doyunMessage(stage, lines, status = "접속 중") {
+    if (state.gameOver || doyunStage >= stage) return;
+    doyunStage = stage;
+
+    CHATS.doyun.status = status;
+    CHATS.doyun.messages.push(["day", "오늘 " + formatTime(gameMinutes)], ...lines.map((t) => ["other", t]));
+    rerender("msg");
+    readDoyunChat();
+
+    showToast("새 메시지 · 김도윤", "msg", () => {
+      state.selectedChat = "doyun";
+      APPS.msg();
+    });
+  }
+
+  // 김도윤 대화방을 보고 있을 때 단서 기록
+  function readDoyunChat() {
+    if (!windows.msg || state.selectedChat !== "doyun") return;
+    addClue("c_pwhint");
+    if (doyunStage >= 2) addClue("c_doyun");
+  }
+
+  /* ---------------------------------------------------------
+     11. 명령 프롬프트
+     ---------------------------------------------------------
+     IT 담당자인 주인공이 처음으로 '반격'할 수 있는 곳.
+     tasklist로 원격 프로그램을 찾고 taskkill로 끄면 숨겨진 엔딩 H */
+
+  const CMD_PROMPT = "C:\\Users\\hsj>";
+
+  function renderCmd() {
+    const output = state.cmdLines.map(escapeHtml).join("\n");
+    return `
+      <div class="cmd">
+        <pre class="cmd-out" id="cmdout">${output}</pre>
+        <form id="cmdf" class="cmd-line">
+          <label for="cmdin">${CMD_PROMPT}</label>
+          <input id="cmdin" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="명령어 입력">
+        </form>
+      </div>`;
+  }
+
+  // 출력 맨 아래로 스크롤하고 입력칸에 커서 두기
+  function focusCmd() {
+    const out = $("#cmdout");
+    if (out) out.scrollTop = out.scrollHeight;
+    const input = $("#cmdin");
+    if (input && !view.narrow) input.focus();
+  }
+
+  function runCommand(raw) {
+    const input = raw.trim();
+    state.cmdLines.push(CMD_PROMPT + input);
+    const [name = "", ...args] = input.toLowerCase().split(/\s+/);
+    const remoteActive = state.event1Done && !state.agentKilled;
+    const print = (...lines) => state.cmdLines.push(...lines, "");
+
+    switch (name) {
+      case "":
+        break;
+
+      case "help":
+        print(
+          "사용할 수 있는 명령어:",
+          "  whoami      현재 사용자 확인",
+          "  ipconfig    네트워크 정보",
+          "  netstat     현재 네트워크 연결 목록",
+          "  tasklist    실행 중인 프로그램 목록",
+          "  query       로그인한 세션 목록 (query session)",
+          "  dir         폴더 목록",
+          "  cls         화면 지우기",
+          "  exit        창 닫기"
+        );
+        break;
+
+      case "whoami":
+        print("hsj-pc-0412\\hsj", "(원격 대리 로그인: lee_jun)");
+        break;
+
+      case "ipconfig":
+        print("IPv4 주소 . . . . . . : 10.2.3.41", "서브넷 마스크 . . . . : 255.255.0.0", "기본 게이트웨이 . . . : 10.2.0.1");
+        break;
+
+      case "netstat": {
+        const rows = [
+          "  프로토콜  로컬 주소           외부 주소           상태",
+          "  TCP       10.2.3.41:49702     10.2.0.1:443        ESTABLISHED",
+        ];
+        if (remoteActive) rows.push("  TCP       10.2.3.41:3389      10.2.0.7:51544      ESTABLISHED  (원격 데스크톱)");
+        rows.push("  TCP       10.2.3.41:5222      알 수 없음:443      TIME_WAIT");
+        print(...rows);
+        break;
+      }
+
+      case "tasklist": {
+        const rows = [
+          "이미지 이름              PID    사용자",
+          "======================== ====== ==========",
+          "explorer.exe             1840   hsj",
+          "messenger.exe            2204   hsj",
+          "cmd.exe                  5012   lee_jun",
+        ];
+        if (remoteActive) {
+          rows.push("remote_agent.exe         4120   sec_choi");
+          addClue("c_agent");
+        }
+        print(...rows);
+        break;
+      }
+
+      case "query":
+      case "qwinsta": {
+        const rows = ["세션 이름      사용자 이름   ID  상태", "console        hsj           1   활성"];
+        if (remoteActive) rows.push("rdp-tcp#3      sec_choi      2   활성");
+        print(...rows);
+        break;
+      }
+
+      case "dir":
+        print(" C:\\Users\\hsj 디렉터리", "", "<DIR>          사진", "<DIR>          문서", "<DIR>          보험");
+        break;
+
+      case "taskkill":
+        killRemoteAgent(args.join(" "), print);
+        break;
+
+      // 세션을 직접 끊는 명령은 관리자 권한이 없어서 막힘 (잠금 화면 단서와 연결)
+      case "logoff":
+      case "rwinsta":
+      case "tsdiscon":
+      case "shutdown":
+        print("액세스가 거부되었습니다.", "(이 PC의 관리자 권한은 11/05 03:12에 해제되었습니다)");
+        break;
+
+      case "cls":
+        state.cmdLines = [];
+        break;
+
+      case "exit":
+        closeWindow("cmd");
+        return;
+
+      default:
+        print(`'${input.split(/\s+/)[0]}'은(는) 내부 또는 외부 명령, 실행할 수 있는 프로그램, 또는`, "배치 파일이 아닙니다.");
+    }
+
+    rerender("cmd");
+    focusCmd();
+  }
+
+  function killRemoteAgent(target, print) {
+    const aimsAtAgent = target.includes("remote_agent") || target.includes("4120");
+    if (!aimsAtAgent || !state.event1Done || state.agentKilled) {
+      print("오류: 프로세스를 찾을 수 없습니다.");
+      return;
+    }
+    if (state.gameOver) {
+      print("오류: 액세스가 거부되었습니다.");
+      return;
+    }
+    print('성공: 프로세스 "remote_agent.exe"(PID 4120)이(가) 종료되었습니다.');
+    startEndingH();
+  }
+
+  // 숨겨진 엔딩 H: 원격을 끊자 정적… 그리고 출입문이 열린다
+  function startEndingH() {
+    state.agentKilled = true;
+    state.gameOver = true; // 다른 이벤트 멈춤
+    $("#remote").style.display = "none";
+    hideGhostCursor(0);
+    rerender("log");
+
+    setTimeout(() => showToast("원격 데스크톱 세션이 종료되었습니다", "msg"), 800);
+    setTimeout(() => {
+      sound.door();
+      glitch();
+      showToast("IT지원실 출입문이 열렸습니다 · 출입카드: 최문혁", "red");
+    }, 9000);
+    setTimeout(() => finishGame("H"), 13000);
+  }
+
+  /* ---------------------------------------------------------
+     12. 엔딩
      --------------------------------------------------------- */
 
   // 엔딩 문장이 한 줄씩 천천히 나타나게 만들기
@@ -1263,6 +1695,7 @@
 
   // 엔딩 D: 보고서를 3번 틀리면, 원격 사용자가 보고서를 빼앗아 가짜 답으로 제출함
   function startEndingD() {
+    state.gameOver = true;
     APPS.report();
     const inputs = [0, 1, 2].map((i) => $("#q" + i));
     const fakeAnswers = ["아무도 없었다", "없음", "없음"];
@@ -1300,11 +1733,32 @@
             APPS.mail();
             glitch();
 
-            setTimeout(() => showEnding(renderEnding(...ENDINGS.D)), 7000);
+            setTimeout(() => finishGame("D"), 7000);
           }, 400);
         });
       });
     }, 1200);
+  }
+
+  // 엔딩 확정: 도감과 회차 기록에 저장하고 엔딩 화면 표시
+  function finishGame(key) {
+    state.gameOver = true;
+    hideGhostCursor(0);
+
+    if (!save.endings.includes(key)) save.endings.push(key);
+    save.history.push({ run: state.runNumber, ending: key });
+    save.history = save.history.slice(-3); // 최근 3판만 기억
+    writeSave();
+
+    let [lines, title] = ENDINGS[key];
+
+    // 진엔딩: 김도윤의 고백을 들었다면 한서진이 답을 남김
+    if (key === "C" && state.clues.includes("c_doyun")) {
+      lines = [...lines];
+      lines.splice(lines.length - 1, 0, "[hsj_backup] 도윤씨 얘기는 들었어요. …괜찮다고 전해 줘요.");
+    }
+
+    showEnding(renderEnding(lines, title));
   }
 
   function showEnding(html) {
@@ -1315,6 +1769,7 @@
 
   // 엔딩 B: 업로드 중 원격 사용자의 취소 시도를 3번 막아야 함
   function startEndingB() {
+    state.gameOver = true;
     showEnding(`
       <h2 style="margin-top:0">제보 메일 전송</h2>
       <p class="dim">받는 사람: 제보 데스크 · 첨부: 보험.zip (사고보고서 원본, CCTV 원본, 음성메모)</p>
@@ -1332,7 +1787,7 @@
       if (deadline) {
         if (Date.now() > deadline) {
           clearInterval(timer);
-          showEnding(renderEnding(...ENDINGS.B_FAIL));
+          finishGame("B_FAIL");
         }
         return;
       }
@@ -1351,7 +1806,7 @@
 
       if (progress >= 100) {
         clearInterval(timer);
-        showEnding(renderEnding(...ENDINGS.B));
+        finishGame("B");
       }
     }, 90);
 
@@ -1362,14 +1817,19 @@
   }
 
   /* ---------------------------------------------------------
-     12. 버튼 동작 (data-act 값 → 함수)
+     13. 버튼 동작 (data-act 값 → 함수)
      --------------------------------------------------------- */
 
   const ACTIONS = {
     // 시작 화면 → 잠금 화면
     boot() {
+      sound.start(); // 첫 클릭에서 소리 켜기
       $("#boot").hidden = true;
       $("#wall").innerHTML = PICTURES.lockWallpaper();
+      // 두 번째 판부터: 잠금 화면이 나를 알아봄
+      if (previousRuns > 0) {
+        $("#lsmsg").innerHTML = `<span class="redt">또 오셨네요, 이준 씨.</span>`;
+      }
       $("#ls").hidden = false;
       setTimeout(() => $("#lpw").focus(), 50);
     },
@@ -1401,7 +1861,7 @@
     chat(key) {
       state.selectedChat = key;
       rerender("msg");
-      if (key === "doyun") addClue("c_pwhint");
+      readDoyunChat();
       hijackMessenger();
     },
 
@@ -1437,15 +1897,64 @@
 
     end(key) {
       if (key === "B") return startEndingB();
-      showEnding(renderEnding(...ENDINGS[key]));
+      finishGame(key);
     },
 
     keep: () => state.keepSending && state.keepSending(),
     restart: () => location.reload(),
+
+    // 작업표시줄: 소리 켜기/끄기
+    toggleSound() {
+      sound.start();
+      sound.setEnabled(!sound.enabled);
+      $("#mute").textContent = sound.enabled ? "소리 켬" : "소리 끔";
+      $("#mute").setAttribute("aria-pressed", String(!sound.enabled));
+    },
+
+    // 시작 화면: 기록 지우기 (실수 방지로 두 번 눌러야 지워짐)
+    resetSave(arg, button) {
+      if (button.dataset.confirm !== "yes") {
+        button.dataset.confirm = "yes";
+        button.textContent = "정말 지울까요? 한 번 더 누르세요";
+        return;
+      }
+      try {
+        localStorage.removeItem(SAVE_KEY);
+      } catch {}
+      location.reload();
+    },
   };
 
+  // 시작 화면의 엔딩 도감
+  function renderEndingDex() {
+    const seen = save.endings;
+    const items = ENDING_DEX.map(([key, name]) => {
+      const found = seen.includes(key);
+      const label = found ? name : key === "H" ? "??? (숨겨진 엔딩)" : "???";
+      return `<li class="${found ? "seen" : ""}">${label}</li>`;
+    }).join("");
+
+    $("#dex").innerHTML = `
+      <div class="dex-head">
+        <b>엔딩 도감</b>
+        <span class="dim">${seen.length} / ${ENDING_DEX.length}</span>
+      </div>
+      <ul class="dex-list">${items}</ul>
+      ${save.runs ? `
+        <p class="dex-foot dim">
+          지금까지 ${save.runs}번 접속했다.
+          <button type="button" class="linkbtn" data-act="resetSave">기록 지우기</button>
+        </p>` : ""}`;
+
+    if (save.runs) {
+      $("#boot .eyebrow").textContent += ` · ${save.runs + 1}번째 접속`;
+    }
+  }
+
+  renderEndingDex();
+
   /* ---------------------------------------------------------
-     13. 입력 처리
+     14. 입력 처리
      --------------------------------------------------------- */
 
   // 암호 비교 전에 띄어쓰기 제거
@@ -1464,6 +1973,13 @@
 
     if (LOGIN_PASSWORDS.includes(input)) {
       $("#ls").hidden = true;
+      sound.startHum();
+
+      // 회차 기록
+      save.runs++;
+      state.runNumber = save.runs;
+      writeSave();
+
       // 게임 시계 시작 (실제 5초 = 게임 1분)
       setInterval(() => {
         gameMinutes++;
@@ -1476,6 +1992,7 @@
     }
 
     state.loginTries++;
+    sound.error();
     shake($("#lsf"));
     const n = state.loginTries;
     const message = $("#lsmsg");
@@ -1502,6 +2019,7 @@
     }
 
     state.folderTries++;
+    sound.error();
     shake($("#lf"));
     $("#lmsg").textContent = "암호가 올바르지 않습니다." +
       (state.folderTries >= 2 ? " 힌트: 팀 첫 회식 가게 이름" : "");
@@ -1556,6 +2074,38 @@
     if (form.id === "lsf") submitLogin();
     if (form.id === "lf") submitFolderPassword();
     if (form.id === "rf") submitReport(form);
+    if (form.id === "cmdf") runCommand($("#cmdin").value);
+  });
+
+  // 탭 이탈 감지: 원격 세션 중에 다른 탭에 다녀오면 최문혁이 알아챔 (최대 2번)
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      hiddenAt = Date.now();
+      return;
+    }
+    const secondsAway = Math.round((Date.now() - hiddenAt) / 1000);
+    hiddenAt = 0;
+
+    if (secondsAway < 3 || !state.event1Done) return;
+    if (state.gameOver || state.agentKilled || state.tabWarnings >= 2) return;
+
+    state.tabWarnings++;
+    const lines = state.tabWarnings === 1
+      ? [`${secondsAway}초 동안 어디 다녀오셨어요?`]
+      : ["자리 비우지 마세요.", "그 화면, 저도 같이 보고 있으니까요."];
+
+    CHATS.choi.status = "접속 중 · 지금";
+    CHATS.choi.messages.push(["day", "오늘 " + formatTime(gameMinutes)], ...lines.map((t) => ["threat", t]));
+    rerender("msg");
+
+    setTimeout(() => {
+      glitch();
+      showToast("새 메시지 · 최문혁 팀장: " + lines[0], "red", () => {
+        state.selectedChat = "choi";
+        APPS.msg();
+      });
+    }, 700);
   });
 
   // 보고서 입력값을 기억해 둠 (새 단서로 보고서가 다시 그려져도 유지되도록)

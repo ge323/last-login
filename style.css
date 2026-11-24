@@ -420,6 +420,62 @@ tr.live td {
   background: #3a171599;
 }
 
+/* 접속 기록에 남은 지난 회차의 '나' */
+tr.past td {
+  color: #b9a7c9;
+  font-style: italic;
+}
+
+/* 명령 프롬프트 */
+.body:has(.cmd) {
+  padding: 0;
+  background: #050607;
+}
+
+.cmd {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font: 14px/1.6 "Nanum Gothic Coding", monospace;
+  color: #d6dcd4;
+}
+
+.cmd-out {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: inherit;
+}
+
+.cmd-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 12px;
+}
+
+.cmd-line label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.cmd-line input {
+  min-height: 36px;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 16px;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  caret-color: #fff;
+}
+
+.cmd-line input:focus {
+  outline: none;
+}
+
 
 /* ---------------------------------------------------------
    7. 버튼과 입력칸
@@ -619,6 +675,15 @@ select:focus {
   border-color: var(--red);
 }
 
+.toast.msg {
+  border-color: var(--acc);
+}
+
+/* 소리 켜기/끄기 버튼 */
+#mute {
+  max-width: none;
+}
+
 @keyframes slide-in {
   from {
     opacity: 0;
@@ -810,6 +875,68 @@ select:focus {
   to { opacity: 1; }
 }
 
+/* 시작 화면: 엔딩 도감 */
+.dex {
+  margin-top: 24px;
+}
+
+.dex-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.dex-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dex-list li {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--dim);
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+}
+
+.dex-list li.seen {
+  color: var(--ink);
+  background: #ffffff08;
+  border-style: solid;
+}
+
+.dex-foot {
+  margin: 12px 0 0;
+}
+
+.sound-note {
+  margin: 20px 0 0;
+  font-size: 13px;
+}
+
+/* 글자처럼 보이는 작은 버튼 */
+.linkbtn {
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--acc);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .dex-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* 엔딩 B 업로드 막대 */
 .pb {
   height: 14px;
@@ -880,4 +1007,15 @@ select:focus {
     animation-duration: 0.01s !important;
     transition: none !important;
   }
+}
+
+/* 반복되는 짧은 알림 (단서 기록): 작고 조용하게 */
+.toast.mini {
+  justify-self: end;
+  width: auto;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--dim);
+  background: #161d20e6;
+  box-shadow: none;
 }
